@@ -1,0 +1,47 @@
+[
+  {
+    "id": "pasta-carbonara",
+    "nombre": "Pasta Carbonara Tradicional",
+    "categoria": "Almuerzos Rápidos",
+    "descripcion": "Un clásico italiano cremoso sin usar crema de leche.",
+    "tiempoTotal": "20 min",
+    "ingredientesTotales": [
+      "200g de pasta (espagueti)",
+      "100g de panceta o tocino",
+      "2 huevos enteros",
+      "50g de queso pecorino o parmesano",
+      "Pimienta negra al gusto",
+      "Sal para el agua"
+    ],
+    "pasos": [
+      {
+        "numero": 1,
+        "texto": "Pon a hervir agua en una olla grande con una pizca de sal. Cuando hierva con fuerza, agrega la pasta y cocínala por 9 minutos.",
+        "ingredientesDelPaso": ["200g de pasta", "Sal para el agua"],
+        "tieneTemporizador": true,
+        "tiempoSegundos": 540
+      },
+      {
+        "numero": 2,
+        "texto": "Mientras la pasta se cocina, corta la panceta en cubos y dórala en un sartén a fuego medio hasta que esté crujiente, aproximadamente por 5 minutos.",
+        "ingredientesDelPaso": ["100g de panceta o tocino"],
+        "tieneTemporizador": true,
+        "tiempoSegundos": 300
+      },
+      {
+        "numero": 3,
+        "texto": "En un tazón aparte, bate los dos huevos y mézclalos con el queso rallado y mucha pimienta negra hasta crear una pasta homogénea.",
+        "ingredientesDelPaso": ["2 huevos enteros", "50g de queso pecorino o parmesano", "Pimienta negra al gusto"],
+        "tieneTemporizador": false,
+        "tiempoSegundos": 0
+      },
+      {
+        "numero": 4,
+        "texto": "Apaga el fuego del sartén de la panceta. Escurre la pasta, agrégala al sartén caliente, vierte la mezcla de huevo y queso, y revuelve rápido para que el calor residual cree una salsa cremosa sin cuajar el huevo.",
+        "ingredientesDelPaso": ["Todos los ingredientes anteriores"],
+        "tieneTemporizador": false,
+        "tiempoSegundos": 0
+      }
+    ]
+  }
+]
