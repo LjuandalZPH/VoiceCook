@@ -1,0 +1,6 @@
+{
+  "name": "VoiceCook",
+  "description": "A hands-free smart cooking assistant with a futuristic, responsive culinary interface.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
