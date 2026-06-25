@@ -48,6 +48,30 @@ export interface DeviceProfileRow extends Record<string, unknown> {
   updated_at: string;
 }
 
+export interface UserProfile {
+  id: string;
+  full_name: string;
+  cooking_preferences: string[];
+  dietary_restrictions: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UserProfilePatch {
+  full_name?: string;
+  cooking_preferences?: string[];
+  dietary_restrictions?: string[];
+}
+
+export interface UserProfileRow extends Record<string, unknown> {
+  id: string;
+  full_name: string;
+  cooking_preferences: string[];
+  dietary_restrictions: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export type Json =
   | string
   | number
@@ -90,6 +114,24 @@ export interface Database {
             referencedColumns: ["id"];
           }
         ];
+      };
+      user_profiles: {
+        Row: UserProfileRow;
+        Insert: Record<string, unknown> & {
+          id: string;
+          full_name?: string;
+          cooking_preferences?: string[];
+          dietary_restrictions?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Record<string, unknown> & {
+          full_name?: string;
+          cooking_preferences?: string[];
+          dietary_restrictions?: string[];
+          updated_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: Record<string, never>;

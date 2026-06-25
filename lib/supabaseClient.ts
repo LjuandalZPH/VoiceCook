@@ -36,9 +36,9 @@ export function getSupabaseClient(): VoiceCookSupabaseClient | null {
 
     client = createClient<Database>(url, key, {
       auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
       },
       global: {
         headers: { "x-application-name": "voicecook" },
@@ -47,12 +47,15 @@ export function getSupabaseClient(): VoiceCookSupabaseClient | null {
 
     isLocalFallback = false;
     supabaseInitError = null;
+
     return client;
   } catch (error) {
     isLocalFallback = true;
     supabaseInitError =
       error instanceof Error ? error.message : "Unable to initialize Supabase.";
+
     client = null;
+
     return null;
   }
 }
