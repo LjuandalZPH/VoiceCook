@@ -18,6 +18,7 @@ export interface UseVoiceCookReturn {
   isListening: boolean;
   isSpeaking: boolean;
   isSupported: boolean;
+  permissionDenied: boolean;
   toggleListening: () => void;
   speakStep: (text: string) => void;
 }

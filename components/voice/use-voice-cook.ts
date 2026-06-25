@@ -13,7 +13,14 @@ function isFinalSpeechResult(result: SpeechRecognitionResult): boolean {
 export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const [isSupported] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return Boolean(getSpeechRecognition());
+  });
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   const callbacksRef = useRef(callbacks);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -23,6 +30,7 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
   const isSpeakingRef = useRef(false);
   const userStoppedRef = useRef(true);
   const recognitionRunningRef = useRef(false);
+  const hasMicrophonePermissionRef = useRef(false);
 
   useEffect(() => {
     callbacksRef.current = callbacks;
@@ -65,6 +73,32 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
       recognitionRunningRef.current = false;
       setIsListening(false);
       isListeningRef.current = false;
+    }
+  }, []);
+
+  const requestMicrophoneAccess = useCallback(async (): Promise<boolean> => {
+    if (hasMicrophonePermissionRef.current) {
+      return true;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return true;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      hasMicrophonePermissionRef.current = true;
+      setPermissionDenied(false);
+      return true;
+    } catch (error) {
+      console.warn("[useVoiceCook] Microphone permission is blocked.");
+      userStoppedRef.current = true;
+      isListeningRef.current = false;
+      setIsListening(false);
+      hasMicrophonePermissionRef.current = false;
+      setPermissionDenied(true);
+      return false;
     }
   }, []);
 
@@ -176,7 +210,6 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
 
     if (!SpeechRecognition) {
       console.error("[useVoiceCook] Web Speech API not supported in this browser.");
-      setIsSupported(false);
       return;
     }
 
@@ -212,17 +245,20 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error("[useVoiceCook] Speech recognition error.", event.error);
+      if (event.error === "aborted") {
+        return;
+      }
 
-      if (
-        event.error === "not-allowed" ||
-        event.error === "service-not-allowed" ||
-        event.error === "aborted"
-      ) {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         userStoppedRef.current = true;
         setIsListening(false);
         isListeningRef.current = false;
+        hasMicrophonePermissionRef.current = false;
+        setPermissionDenied(true);
+        return;
       }
+
+      console.error("[useVoiceCook] Speech recognition error.", event.error);
     };
 
     recognition.onend = () => {
@@ -234,7 +270,6 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     };
 
     recognitionRef.current = recognition;
-    setIsSupported(true);
 
     return () => {
       recognitionRef.current = null;
@@ -261,15 +296,25 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     }
 
     userStoppedRef.current = false;
-    isListeningRef.current = true;
-    setIsListening(true);
-    startRecognition();
-  }, [startRecognition, stopRecognition]);
+
+    void (async () => {
+      const hasPermission = await requestMicrophoneAccess();
+
+      if (!hasPermission) {
+        return;
+      }
+
+      isListeningRef.current = true;
+      setIsListening(true);
+      startRecognition();
+    })();
+  }, [requestMicrophoneAccess, startRecognition, stopRecognition]);
 
   return {
     isListening,
     isSpeaking,
     isSupported,
+    permissionDenied,
     toggleListening,
     speakStep,
   };
