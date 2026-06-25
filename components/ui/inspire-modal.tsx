@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Sparkles, X, Loader2, ArrowRight, Lightbulb, ChefHat } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { Sparkles, X, Loader2, ArrowRight, Lightbulb, ChefHat, Mic, MicOff } from 'lucide-react';
 import { inspireRecipeAction } from '@/actions/recipe-actions';
 import { Recipe } from '@/types/recipe';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouter } from 'next/navigation';
+import { useSpeechInput } from '@/components/voice/use-speech-input';
 
 interface InspireModalProps {
   isOpen: boolean;
@@ -29,6 +30,20 @@ export default function InspireModal({ isOpen, onClose, onRecipeGenerated }: Ins
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+
+  const handleVoiceTranscript = useCallback((transcript: string) => {
+    setPrompt((current) => {
+      const trimmed = current.trim();
+      return trimmed ? `${trimmed} ${transcript}` : transcript;
+    });
+  }, []);
+
+  const {
+    isListening,
+    isSupported: isSpeechSupported,
+    permissionDenied,
+    toggleListening,
+  } = useSpeechInput({ onTranscript: handleVoiceTranscript });
 
   if (!isOpen) return null;
 
@@ -55,8 +70,14 @@ export default function InspireModal({ isOpen, onClose, onRecipeGenerated }: Ins
       } else {
         setError(response.error || "No se pudo generar la receta.");
       }
-    } catch (err: any) {
-      setError("Error del sistema al conectar con la IA de cocina.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "No se pudo conectar con el servidor. Revisa la consola del navegador e intenta de nuevo.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -105,7 +126,7 @@ export default function InspireModal({ isOpen, onClose, onRecipeGenerated }: Ins
             </div>
             <div>
               <h2 className="font-display text-xl font-bold text-white">Inspirar Nueva Receta</h2>
-              <p className="text-xs text-slate-400">La IA de VoiceCook creará un menú guiado por voz a tu medida.</p>
+              <p className="text-xs text-slate-400">Dicta tu idea con voz o escríbela; Gemini creará un menú guiado por voz a tu medida.</p>
             </div>
           </div>
           <button
@@ -134,14 +155,38 @@ export default function InspireModal({ isOpen, onClose, onRecipeGenerated }: Ins
                     <Lightbulb className="w-4 h-4 text-amber-400" />
                     ¿Qué tienes en mente o qué ingredientes quieres usar?
                   </label>
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    required
-                    placeholder="Ej. Tacos al pastor rápidos, o cena ligera vegetariana con aguacate y tomates..."
-                    rows={3}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-900/85 border border-slate-800 focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/50 text-slate-100 placeholder-slate-500 text-sm outline-none resize-none transition-all duration-200"
-                  />
+                  <div className="relative">
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      required
+                      placeholder="Ej. Tacos al pastor rápidos, o cena ligera vegetariana con aguacate y tomates..."
+                      rows={3}
+                      className="w-full px-4 py-3 pr-14 rounded-xl bg-slate-900/85 border border-slate-800 focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/50 text-slate-100 placeholder-slate-500 text-sm outline-none resize-none transition-all duration-200"
+                    />
+                    {isSpeechSupported && (
+                      <button
+                        type="button"
+                        onClick={toggleListening}
+                        title={isListening ? "Detener dictado" : "Dictar con voz"}
+                        className={`absolute right-3 top-3 p-2 rounded-lg transition-all duration-200 ${
+                          isListening
+                            ? "bg-teal-500/20 text-teal-400 voice-pulse-glow"
+                            : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                        }`}
+                      >
+                        {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      </button>
+                    )}
+                  </div>
+                  {permissionDenied && (
+                    <p className="text-xs text-amber-400">
+                      Permiso de micrófono bloqueado. Permítelo en la configuración del navegador.
+                    </p>
+                  )}
+                  {isListening && (
+                    <p className="text-xs text-teal-400 animate-pulse">Escuchando… habla tu idea de receta.</p>
+                  )}
                 </div>
 
                 {/* Suggestions Pills */}

@@ -30,7 +30,7 @@ export default function CookFocusPage() {
   const [isMuted, setIsMuted] = useState(false);
   
   // Voice status text
-  const [voiceLog, setVoiceLog] = useState<string>("Esperando comando de voz...");
+  const [voiceLog, setVoiceLog] = useState<string>("");
   const [showRipple, setShowRipple] = useState(false);
   const [showFinishedSplash, setShowFinishedSplash] = useState(false);
 
@@ -147,6 +147,7 @@ export default function CookFocusPage() {
     isListening,
     isSpeaking,
     isSupported,
+    permissionDenied,
     toggleListening,
     speakStep,
   } = useVoiceCook({
@@ -180,35 +181,25 @@ export default function CookFocusPage() {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  useEffect(() => {
+  const statusVoiceLog = React.useMemo(() => {
+    if (permissionDenied) {
+      return "Micrófono bloqueado. Usa HTTPS/localhost y habilita permiso del sitio.";
+    }
+
     if (!isSupported) {
-      setVoiceLog("Navegador sin soporte de voz");
-      return;
+      return "Navegador sin soporte de voz";
     }
 
     if (isSpeaking) {
-      setVoiceLog("Asistente: Leyendo instrucción...");
-      return;
+      return "Asistente: Leyendo instrucción...";
     }
 
     if (isListening) {
-      setVoiceLog("Asistente: Escuchando comando ('siguiente', 'repetir', 'atrás')...");
-      return;
+      return "Asistente: Escuchando comando ('siguiente', 'repetir', 'atrás')...";
     }
 
-    setVoiceLog("Voz desactivada");
-  }, [isListening, isSpeaking, isSupported]);
-
-  const hasAutoStartedListeningRef = useRef(false);
-
-  useEffect(() => {
-    if (!isSupported || hasAutoStartedListeningRef.current || isListening) {
-      return;
-    }
-
-    hasAutoStartedListeningRef.current = true;
-    toggleListening();
-  }, [isListening, isSupported, toggleListening]);
+    return "Voz desactivada";
+  }, [isListening, isSpeaking, isSupported, permissionDenied]);
 
   // Initialize and handle timer when step changes
   useEffect(() => {
@@ -471,7 +462,7 @@ export default function CookFocusPage() {
               <Mic className="w-3.5 h-3.5" />
             </div>
             <span className="text-xs font-mono text-slate-400 truncate select-none">
-              {voiceLog}
+              {voiceLog || statusVoiceLog}
             </span>
           </div>
         </div>

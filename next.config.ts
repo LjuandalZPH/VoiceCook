@@ -8,6 +8,18 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  experimental: {
+    serverActions: {
+      allowedOrigins: [
+        "localhost:3000",
+        "localhost:3001",
+        "127.0.0.1:3000",
+        "127.0.0.1:3001",
+        "192.168.40.117:3000",
+        "192.168.40.117:3001",
+      ],
+    },
+  },
   // Allow access to remote image placeholder.
   images: {
     remotePatterns: [
