@@ -38,7 +38,7 @@ export default function CookFocusPage() {
 
   const triggerTimerDoneSound = React.useCallback(() => {
     setTimeout(() => {
-      setVoiceLog("��� ?Temporizador Completo!");
+      setVoiceLog("⏱️ Temporizador Completo!");
     }, 0);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const utterance = new SpeechSynthesisUtterance("El tiempo del paso ha terminado.");
@@ -144,6 +144,10 @@ export default function CookFocusPage() {
       setCurrentStepIndex((prev) => prev + 1);
       setVoiceLog("Cargando siguiente paso...");
     } else {
+      void syncDeviceProfile({
+        last_recipe_id: null,
+        last_step_index: null,
+      });
       setShowFinishedSplash(true);
     }
   }, [chefModalOpen, currentStepIndex, recipe]);
@@ -231,7 +235,7 @@ export default function CookFocusPage() {
     }
 
     if (isSpeaking) {
-      return "Asistente: Leyendo instrucci?n...";
+      return "Asistente: Leyendo instrucción...";
     }
 
     if (isListening) {
