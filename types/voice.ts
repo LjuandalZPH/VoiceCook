@@ -12,6 +12,8 @@ export interface UseVoiceCookProps {
   onStartTimer: () => void;
   onPauseTimer: () => void;
   onStopTimer: () => void;
+  onChefQueryTrigger?: () => void;
+  isNavigationBlocked?: boolean;
 }
 
 export interface UseVoiceCookReturn {
@@ -20,6 +22,8 @@ export interface UseVoiceCookReturn {
   isSupported: boolean;
   permissionDenied: boolean;
   toggleListening: () => void;
+  pauseListening: () => void;
+  resumeListening: () => void;
   speakStep: (text: string) => void;
 }
 
