@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ChefHat, Loader2, Mic, Send, X } from "lucide-react";
+import { AlertCircle, ChefHat, Loader2, Mic, RotateCcw, Send, Volume2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { chefQueryAction } from "@/actions/recipe-actions";
 import type { ChefQueryPhase, RecipeContextPayload } from "@/types/chef-query";
@@ -12,15 +12,18 @@ interface ChefQueryModalProps {
   isOpen: boolean;
   onClose: () => void;
   recipeContext: RecipeContextPayload;
+  isMuted?: boolean;
 }
 
-const VERIFY_PROMPT = "¿Es correcto? Di Enviar para procesar o Cancelar para volver.";
+const VERIFY_PROMPT =
+  "¿Es correcto? Di Enviar para consultar, Regrabar para repetir la pregunta, o Cancelar para volver al paso.";
 const ERROR_FALLBACK = "Lo siento, no pude conectarme con el chef.";
 
 export function ChefQueryModal({
   isOpen,
   onClose,
   recipeContext,
+  isMuted = false,
 }: ChefQueryModalProps) {
   const [phase, setPhase] = useState<ChefQueryPhase>("capture");
   const [question, setQuestion] = useState("");
@@ -28,16 +31,28 @@ export function ChefQueryModal({
   const [error, setError] = useState("");
   const closeRef = useRef(onClose);
   const mountedRef = useRef(false);
+  const isMutedRef = useRef(isMuted);
+  const restartCaptureRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     closeRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   const closeModal = useCallback(() => {
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
     closeRef.current();
+  }, []);
+
+  const speakIfAudible = useCallback(async (text: string) => {
+    if (!isMutedRef.current) {
+      await speakPromise(text);
+    }
   }, []);
 
   const handlePermissionDenied = useCallback(() => {
@@ -65,10 +80,43 @@ export function ChefQueryModal({
         return;
       }
 
+      if (confirmation === "retry") {
+        restartCaptureRef.current();
+        return;
+      }
+
       setPhase("loading");
     },
     onPermissionDenied: handlePermissionDenied,
   });
+
+  const restartCapture = useCallback(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    stopAll();
+    setQuestion("");
+    setAnswer("");
+    setError("");
+    resetTranscript();
+    setPhase("capture");
+    startCapture();
+  }, [resetTranscript, startCapture, stopAll]);
+
+  useEffect(() => {
+    restartCaptureRef.current = restartCapture;
+  }, [restartCapture]);
+
+  const handleSendQuestion = useCallback(() => {
+    stopAll();
+    setPhase("loading");
+  }, [stopAll]);
+
+  const handleReadAnswer = useCallback(() => {
+    if (answer) {
+      void speakIfAudible(answer);
+    }
+  }, [answer, speakIfAudible]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -99,14 +147,14 @@ export function ChefQueryModal({
 
     stopAll();
     void (async () => {
-      await speakPromise(VERIFY_PROMPT);
+      await speakIfAudible(VERIFY_PROMPT);
       if (!mountedRef.current || !isOpen) {
         return;
       }
       setPhase("confirm");
       startConfirmListening();
     })();
-  }, [isOpen, phase, question, startConfirmListening, stopAll]);
+  }, [isOpen, phase, question, speakIfAudible, startConfirmListening, stopAll]);
 
   useEffect(() => {
     if (!isOpen || phase !== "loading" || !question) {
@@ -137,11 +185,7 @@ export function ChefQueryModal({
 
         setAnswer(spokenAnswer);
         setPhase("answer");
-        await speakPromise(spokenAnswer);
-
-        if (mountedRef.current && isOpen) {
-          closeRef.current();
-        }
+        await speakIfAudible(spokenAnswer);
       } catch (requestError) {
         if (requestError instanceof DOMException && requestError.name === "AbortError") {
           return;
@@ -155,20 +199,15 @@ export function ChefQueryModal({
     return () => {
       controller.abort();
     };
-  }, [isOpen, phase, question, recipeContext]);
+  }, [isOpen, phase, question, recipeContext, speakIfAudible]);
 
   useEffect(() => {
     if (!isOpen || phase !== "error" || !error) {
       return;
     }
 
-    void (async () => {
-      await speakPromise(error);
-      if (mountedRef.current && isOpen) {
-        closeRef.current();
-      }
-    })();
-  }, [error, isOpen, phase]);
+    void speakIfAudible(error);
+  }, [error, isOpen, phase, speakIfAudible]);
 
   if (!isOpen) {
     return null;
@@ -253,12 +292,31 @@ export function ChefQueryModal({
                     <Send className="w-4 h-4" />
                     <span>Di “Enviar” o “Listo” para consultar.</span>
                   </div>
+                  <div className="flex items-center gap-2 text-teal-300 text-sm">
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Di “Regrabar” o “Otra pregunta” si no quedó bien.</span>
+                  </div>
                   <div className="flex items-center gap-2 text-slate-400 text-sm">
                     <X className="w-4 h-4" />
                     <span>Di “Cancelar” o “Regresar” para volver al paso.</span>
                   </div>
                 </div>
                 {phase === "confirm" && <VoiceOrb active={isListening} small />}
+                {phase === "confirm" && (
+                  <ModalActions>
+                    <ActionButton variant="primary" onClick={handleSendQuestion}>
+                      <Send className="w-4 h-4" />
+                      Enviar
+                    </ActionButton>
+                    <ActionButton variant="secondary" onClick={restartCapture}>
+                      <RotateCcw className="w-4 h-4" />
+                      Regrabar
+                    </ActionButton>
+                    <ActionButton variant="ghost" onClick={closeModal}>
+                      Cancelar
+                    </ActionButton>
+                  </ModalActions>
+                )}
               </>
             )}
 
@@ -284,6 +342,24 @@ export function ChefQueryModal({
                     {answer}
                   </p>
                 </div>
+                {isMuted && (
+                  <p className="text-slate-400 text-sm">
+                    Lectura en voz alta desactivada. Activa el audio y pulsa Releer respuesta.
+                  </p>
+                )}
+                <ModalActions>
+                  <ActionButton variant="primary" onClick={handleReadAnswer} disabled={!answer}>
+                    <Volume2 className="w-4 h-4" />
+                    Releer respuesta
+                  </ActionButton>
+                  <ActionButton variant="secondary" onClick={restartCapture}>
+                    <Mic className="w-4 h-4" />
+                    Otra pregunta
+                  </ActionButton>
+                  <ActionButton variant="ghost" onClick={closeModal}>
+                    Volver al paso
+                  </ActionButton>
+                </ModalActions>
               </>
             )}
 
@@ -294,12 +370,60 @@ export function ChefQueryModal({
                   <h3 className="font-display text-3xl font-bold text-white">Chef no disponible</h3>
                   <p className="text-amber-200">{error || ERROR_FALLBACK}</p>
                 </div>
+                <ModalActions>
+                  <ActionButton variant="primary" onClick={restartCapture}>
+                    <RotateCcw className="w-4 h-4" />
+                    Intentar de nuevo
+                  </ActionButton>
+                  <ActionButton variant="ghost" onClick={closeModal}>
+                    Volver al paso
+                  </ActionButton>
+                </ModalActions>
               </>
             )}
           </div>
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+}
+
+function ModalActions({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 w-full pt-2">
+      {children}
+    </div>
+  );
+}
+
+function ActionButton({
+  children,
+  onClick,
+  variant = "ghost",
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  variant?: "primary" | "secondary" | "ghost";
+  disabled?: boolean;
+}) {
+  const styles = {
+    primary:
+      "bg-gradient-to-tr from-teal-500 to-emerald-500 text-white hover:from-teal-400 hover:to-emerald-400 border-transparent",
+    secondary:
+      "bg-slate-900 text-teal-300 hover:text-teal-200 border-slate-700 hover:border-teal-500/30",
+    ghost: "bg-transparent text-slate-400 hover:text-white border-slate-800 hover:border-slate-700",
+  }[variant];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border text-sm font-semibold transition-all disabled:opacity-40 disabled:pointer-events-none ${styles}`}
+    >
+      {children}
+    </button>
   );
 }
 

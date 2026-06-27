@@ -59,6 +59,7 @@ const ChefQuerySchema = z.object({
       .min(1),
     currentStepNumber: z.number().int().positive(),
     currentStepText: z.string().trim().min(1),
+    currentStepIngredients: z.array(z.string().trim().min(1)).optional(),
   }),
 });
 
@@ -255,6 +256,9 @@ function buildChefQueryPrompt(input: ChefQueryInput): string {
       `\nIngredientes totales:\n${ingredients}`,
       `\nPasos de la receta:\n${steps}`,
       `\nPaso actual (donde está cocinando el usuario ahora — paso ${context.currentStepNumber}):\n${context.currentStepText}`,
+      context.currentStepIngredients?.length
+        ? `\nIngredientes de este paso:\n${context.currentStepIngredients.map((ingredient) => `- ${ingredient}`).join("\n")}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n"),

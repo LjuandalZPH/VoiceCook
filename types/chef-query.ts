@@ -11,6 +11,7 @@ export interface RecipeContextPayload {
   allSteps: ChefQueryStepContext[];
   currentStepNumber: number;
   currentStepText: string;
+  currentStepIngredients?: string[];
 }
 
 export interface ChefQueryRequest {

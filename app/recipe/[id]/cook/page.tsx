@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Recipe, Paso } from '@/types/recipe';
 import { 
   ArrowLeft, Mic, MicOff, Volume2, VolumeX, Play, Pause, RotateCcw, 
-  Check, ChevronRight, ChevronLeft, AlertCircle
+  Check, ChevronRight, ChevronLeft, AlertCircle, ChefHat
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Link from 'next/link';
@@ -38,7 +38,7 @@ export default function CookFocusPage() {
 
   const triggerTimerDoneSound = React.useCallback(() => {
     setTimeout(() => {
-      setVoiceLog("⏱ ¡Temporizador Completo!");
+      setVoiceLog("��� ?Temporizador Completo!");
     }, 0);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const utterance = new SpeechSynthesisUtterance("El tiempo del paso ha terminado.");
@@ -124,8 +124,14 @@ export default function CookFocusPage() {
       })),
       currentStepNumber: currentStep.numero,
       currentStepText: currentStep.texto,
+      currentStepIngredients: currentStep.ingredientesDelPaso,
     };
   }, [recipe, currentStep]);
+
+  const openChefModal = React.useCallback(() => {
+    setVoiceLog("Chef de Guardia activado...");
+    setChefModalOpen(true);
+  }, []);
 
   const handleNextStep = React.useCallback(() => {
     if (!recipe || chefModalOpen) return;
@@ -179,10 +185,7 @@ export default function CookFocusPage() {
     onStartTimer: startTimer,
     onPauseTimer: pauseTimer,
     onStopTimer: stopTimer,
-    onChefQueryTrigger: () => {
-      setVoiceLog("Chef de Guardia activado...");
-      setChefModalOpen(true);
-    },
+    onChefQueryTrigger: openChefModal,
     isNavigationBlocked: chefModalOpen,
   });
 
@@ -220,7 +223,7 @@ export default function CookFocusPage() {
 
   const statusVoiceLog = React.useMemo(() => {
     if (permissionDenied) {
-      return "Micrófono bloqueado. Usa HTTPS/localhost y habilita permiso del sitio.";
+      return "Micr?fono bloqueado. Usa HTTPS/localhost y habilita permiso del sitio.";
     }
 
     if (!isSupported) {
@@ -228,11 +231,11 @@ export default function CookFocusPage() {
     }
 
     if (isSpeaking) {
-      return "Asistente: Leyendo instrucción...";
+      return "Asistente: Leyendo instrucci?n...";
     }
 
     if (isListening) {
-      return "Asistente: Escuchando comando ('siguiente', 'repetir', 'atrás')...";
+      return "Asistente: Escuchando ('siguiente', 'repetir', 'pregunta' o 'chef')...";
     }
 
     return "Voz desactivada";
@@ -516,6 +519,16 @@ export default function CookFocusPage() {
             <span>Paso Anterior</span>
           </button>
 
+          <button
+            onClick={openChefModal}
+            disabled={chefModalOpen}
+            className="w-full sm:w-auto px-6 py-4 rounded-xl bg-teal-950/40 hover:bg-teal-900/50 border border-teal-500/25 hover:border-teal-400/40 text-sm font-semibold text-teal-300 hover:text-teal-200 transition-all disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center gap-2"
+            title="También puedes decir 'pregunta' o 'chef' con la voz activa"
+          >
+            <ChefHat className="w-4 h-4" />
+            <span>Preguntar al chef</span>
+          </button>
+
           {/* MASSIVE SINGLE ACTION BUTTON - OPTIMIZED FOR TAP OR VOICE FEEDBACK */}
           <div className="relative w-full max-w-md">
             <motion.button
@@ -560,6 +573,7 @@ export default function CookFocusPage() {
           isOpen={chefModalOpen}
           onClose={() => setChefModalOpen(false)}
           recipeContext={chefRecipeContext}
+          isMuted={isMuted}
         />
       )}
 
