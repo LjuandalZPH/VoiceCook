@@ -2,6 +2,7 @@
 
 import dns from "node:dns";
 import { z } from "zod";
+import type { ChefQueryRequest } from "@/types/chef-query";
 import { Recipe } from "@/types/recipe";
 
 dns.setDefaultResultOrder("ipv4first");
@@ -41,6 +42,27 @@ const InspireRecipeSchema = z.object({
   category: z.string().optional(),
 });
 
+const ChefQuerySchema = z.object({
+  question: z.string().trim().min(3),
+  recipeContext: z.object({
+    recipeName: z.string().trim().min(1),
+    recipeDescription: z.string().trim().min(1).optional(),
+    tiempoTotal: z.string().trim().min(1).optional(),
+    ingredientsTotal: z.array(z.string().trim().min(1)).min(1),
+    allSteps: z
+      .array(
+        z.object({
+          numero: z.number().int().positive(),
+          texto: z.string().trim().min(1),
+        })
+      )
+      .min(1),
+    currentStepNumber: z.number().int().positive(),
+    currentStepText: z.string().trim().min(1),
+    currentStepIngredients: z.array(z.string().trim().min(1)).optional(),
+  }),
+});
+
 const SaveRecipeSchema = z.object({
   id: z.string(),
   nombre: z.string().min(1),
@@ -60,6 +82,7 @@ const SaveRecipeSchema = z.object({
 });
 
 type InspireRecipeInput = z.infer<typeof InspireRecipeSchema>;
+type ChefQueryInput = z.infer<typeof ChefQuerySchema>;
 
 interface ServerActionResponse<T> {
   success: boolean;
@@ -70,9 +93,17 @@ interface ServerActionResponse<T> {
 interface GeminiGenerateContentResponse {
   candidates?: Array<{
     content?: {
-      parts?: Array<{ text?: string }>;
+      parts?: Array<{ text?: string; thought?: boolean }>;
     };
+    finishReason?: string;
+    safetyRatings?: Array<{ category?: string; probability?: string }>;
   }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+    thoughtsTokenCount?: number;
+  };
   error?: {
     message?: string;
     code?: number;
@@ -103,6 +134,9 @@ Reglas:
 - Incluye entre 3 y 7 pasos.
 - Si un paso no requiere temporizador usa tieneTemporizador=false y tiempoSegundos=0.
 - No inventes campos extra.`;
+
+const CHEF_QUERY_SYSTEM_PROMPT =
+  "Actúas como un chef asistente profesional y directo. Prioriza el contexto de la receta provista (nombre, descripción, ingredientes, todos los pasos y paso actual). Si la receta no cubre la duda del usuario, complementa con conocimiento culinario general breve y práctico. Tu respuesta debe ser exclusivamente en español, concisa y directa al grano. Evita introducciones como 'Claro, te ayudo' o saludos, ya que tu respuesta será leída en voz alta por un motor de texto a voz mientras el usuario cocina.";
 
 const RECIPE_RESPONSE_SCHEMA = {
   type: "object",
@@ -205,6 +239,68 @@ function buildUserPrompt(input: InspireRecipeInput): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildChefQueryPrompt(input: ChefQueryInput): string {
+  const context = input.recipeContext;
+  const ingredients = context.ingredientsTotal.map((ingredient) => `- ${ingredient}`).join("\n");
+  const steps = context.allSteps.map((step) => `${step.numero}. ${step.texto}`).join("\n");
+
+  return [
+    `Pregunta del usuario:\n${input.question}`,
+    [
+      "Contexto de la receta:",
+      `Nombre: ${context.recipeName}`,
+      context.recipeDescription ? `Descripción: ${context.recipeDescription}` : "",
+      context.tiempoTotal ? `Tiempo total: ${context.tiempoTotal}` : "",
+      `\nIngredientes totales:\n${ingredients}`,
+      `\nPasos de la receta:\n${steps}`,
+      `\nPaso actual (donde está cocinando el usuario ahora — paso ${context.currentStepNumber}):\n${context.currentStepText}`,
+      context.currentStepIngredients?.length
+        ? `\nIngredientes de este paso:\n${context.currentStepIngredients.map((ingredient) => `- ${ingredient}`).join("\n")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  ].join("\n\n");
+}
+
+function cleanChefAnswer(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function extractGeminiAnswerText(payload: GeminiGenerateContentResponse): string {
+  const parts = payload.candidates?.[0]?.content?.parts ?? [];
+  return parts
+    .filter((part) => !part.thought && part.text)
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
+function isChefDebugEnabled(): boolean {
+  return process.env.CHEF_DEBUG === "true";
+}
+
+function logChefGeminiDebug(
+  model: string,
+  payload: GeminiGenerateContentResponse,
+  extractedAnswer: string
+): void {
+  if (!isChefDebugEnabled()) {
+    return;
+  }
+
+  const candidate = payload.candidates?.[0];
+  console.log("[chef-query/gemini]", {
+    model,
+    finishReason: candidate?.finishReason,
+    usageMetadata: payload.usageMetadata,
+    safetyRatings: candidate?.safetyRatings,
+    parts: candidate?.content?.parts,
+    extractedAnswer,
+    rawPayload: payload,
+  });
 }
 
 function parseRecipeFromModelText(modelText: string): Recipe {
@@ -417,6 +513,123 @@ async function generateRecipe(input: InspireRecipeInput): Promise<Recipe> {
   }
 
   return generateRecipeWithGemini(input);
+}
+
+async function askChefWithGemini(input: ChefQueryInput): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Falta GEMINI_API_KEY en variables de entorno.");
+  }
+
+  const models = getGeminiModels();
+  const modelErrors: string[] = [];
+
+  for (const model of models) {
+    try {
+      const generationConfig: Record<string, unknown> = {
+        temperature: 0.5,
+        maxOutputTokens: 512,
+      };
+
+      if (model.includes("2.5")) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
+      const response = await fetchWithRetry(
+        `${GEMINI_API_BASE}/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: CHEF_QUERY_SYSTEM_PROMPT }],
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: buildChefQueryPrompt(input) }],
+              },
+            ],
+            generationConfig,
+          }),
+        },
+        "Gemini"
+      );
+
+      const details = await response.text();
+      if (!response.ok) {
+        throw new Error(details || `Gemini respondió con error (${response.status}).`);
+      }
+
+      const payload = JSON.parse(details) as GeminiGenerateContentResponse;
+      const finishReason = payload.candidates?.[0]?.finishReason;
+
+      if (finishReason === "MAX_TOKENS") {
+        throw new Error("La respuesta del chef quedó incompleta. Intenta de nuevo.");
+      }
+
+      const answer = cleanChefAnswer(extractGeminiAnswerText(payload));
+      logChefGeminiDebug(model, payload, answer);
+
+      if (!answer) {
+        const apiMessage = payload.error?.message;
+        throw new Error(apiMessage || "Gemini no devolvió respuesta.");
+      }
+
+      return answer;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isGeminiQuotaError(message)) {
+        modelErrors.push(`${model}: sin cuota`);
+        continue;
+      }
+      throw formatGeminiError(error, model);
+    }
+  }
+
+  throw new Error(
+    `Gemini no pudo responder (${models.join(", ")}). Detalle: ${modelErrors.join("; ")}`
+  );
+}
+
+export async function chefQueryAction(
+  rawInput: ChefQueryRequest
+): Promise<ServerActionResponse<{ answer: string }>> {
+  try {
+    const validated = ChefQuerySchema.parse(rawInput);
+
+    if (!process.env.GEMINI_API_KEY?.trim()) {
+      return {
+        success: false,
+        error: "Configura GEMINI_API_KEY en .env y reinicia el servidor de desarrollo.",
+      };
+    }
+
+    const answer = await askChefWithGemini(validated);
+
+    return {
+      success: true,
+      data: { answer },
+    };
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        error: `Error de validación: ${error.issues.map((issue) => issue.message).join(", ")}`,
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Ocurrió un error inesperado al consultar al chef";
+
+    return {
+      success: false,
+      error: message,
+    };
+  }
 }
 
 export async function inspireRecipeAction(

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { UseVoiceCookProps, UseVoiceCookReturn, VoiceCommand } from "@/types/voice";
 import { getSpeechRecognition } from "./get-speech-recognition";
 import { normalizeTranscript } from "./normalize-transcript";
+import { isChefQueryTrigger } from "./parse-chef-trigger";
 import { parseVoiceCommand } from "./parse-voice-command";
 
 function isFinalSpeechResult(result: SpeechRecognitionResult): boolean {
@@ -29,6 +30,8 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
   const isListeningRef = useRef(false);
   const isSpeakingRef = useRef(false);
   const userStoppedRef = useRef(true);
+  const pausedRef = useRef(false);
+  const shouldResumeAfterPauseRef = useRef(false);
   const recognitionRunningRef = useRef(false);
   const hasMicrophonePermissionRef = useRef(false);
 
@@ -107,11 +110,17 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
       const currentCallbacks = callbacksRef.current;
 
       if (command === "next") {
+        if (currentCallbacks.isNavigationBlocked) {
+          return;
+        }
         currentCallbacks.onNextStep();
         return;
       }
 
       if (command === "previous") {
+        if (currentCallbacks.isNavigationBlocked) {
+          return;
+        }
         currentCallbacks.onPreviousStep();
         return;
       }
@@ -133,7 +142,7 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
             isSpeakingRef.current = false;
             setIsSpeaking(false);
 
-            if (isListeningRef.current && !userStoppedRef.current) {
+            if (isListeningRef.current && !userStoppedRef.current && !pausedRef.current) {
               startRecognition();
             }
           };
@@ -188,7 +197,7 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
         isSpeakingRef.current = false;
         setIsSpeaking(false);
 
-        if (isListeningRef.current && !userStoppedRef.current) {
+        if (isListeningRef.current && !userStoppedRef.current && !pausedRef.current) {
           startRecognition();
         }
       };
@@ -238,6 +247,11 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
       }
 
       lastTranscriptRef.current = transcript;
+      if (isChefQueryTrigger(transcript)) {
+        callbacksRef.current.onChefQueryTrigger?.();
+        return;
+      }
+
       const command = parseVoiceCommand(transcript);
       if (command) {
         dispatchCommand(command);
@@ -264,7 +278,12 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     recognition.onend = () => {
       recognitionRunningRef.current = false;
 
-      if (isListeningRef.current && !isSpeakingRef.current && !userStoppedRef.current) {
+      if (
+        isListeningRef.current &&
+        !isSpeakingRef.current &&
+        !userStoppedRef.current &&
+        !pausedRef.current
+      ) {
         startRecognition();
       }
     };
@@ -296,6 +315,8 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     }
 
     userStoppedRef.current = false;
+    pausedRef.current = false;
+    shouldResumeAfterPauseRef.current = false;
 
     void (async () => {
       const hasPermission = await requestMicrophoneAccess();
@@ -310,12 +331,41 @@ export function useVoiceCook(callbacks: UseVoiceCookProps): UseVoiceCookReturn {
     })();
   }, [requestMicrophoneAccess, startRecognition, stopRecognition]);
 
+  const pauseListening = useCallback(() => {
+    shouldResumeAfterPauseRef.current = isListeningRef.current && !userStoppedRef.current;
+    pausedRef.current = true;
+
+    if (recognitionRunningRef.current) {
+      stopRecognition();
+    }
+  }, [stopRecognition]);
+
+  const resumeListening = useCallback(() => {
+    if (!pausedRef.current) {
+      return;
+    }
+
+    pausedRef.current = false;
+
+    if (!shouldResumeAfterPauseRef.current || userStoppedRef.current) {
+      shouldResumeAfterPauseRef.current = false;
+      return;
+    }
+
+    shouldResumeAfterPauseRef.current = false;
+    isListeningRef.current = true;
+    setIsListening(true);
+    startRecognition();
+  }, [startRecognition]);
+
   return {
     isListening,
     isSpeaking,
     isSupported,
     permissionDenied,
     toggleListening,
+    pauseListening,
+    resumeListening,
     speakStep,
   };
 }

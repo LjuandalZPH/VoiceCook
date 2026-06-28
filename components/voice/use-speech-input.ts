@@ -12,6 +12,8 @@ interface UseSpeechInputReturn {
   isListening: boolean;
   isSupported: boolean;
   permissionDenied: boolean;
+  startListening: () => void;
+  stopListening: () => void;
   toggleListening: () => void;
 }
 
@@ -156,7 +158,7 @@ export function useSpeechInput({
     };
   }, [lang, startRecognition]);
 
-  const toggleListening = useCallback(() => {
+  const stopListening = useCallback(() => {
     if (!recognitionRef.current) {
       return;
     }
@@ -165,6 +167,11 @@ export function useSpeechInput({
       isListeningRef.current = false;
       setIsListening(false);
       stopRecognition();
+    }
+  }, [stopRecognition]);
+
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current || isListeningRef.current) {
       return;
     }
 
@@ -178,12 +185,23 @@ export function useSpeechInput({
       setIsListening(true);
       startRecognition();
     })();
-  }, [requestMicrophoneAccess, startRecognition, stopRecognition]);
+  }, [requestMicrophoneAccess, startRecognition]);
+
+  const toggleListening = useCallback(() => {
+    if (isListeningRef.current) {
+      stopListening();
+      return;
+    }
+
+    startListening();
+  }, [startListening, stopListening]);
 
   return {
     isListening,
     isSupported,
     permissionDenied,
+    startListening,
+    stopListening,
     toggleListening,
   };
 }

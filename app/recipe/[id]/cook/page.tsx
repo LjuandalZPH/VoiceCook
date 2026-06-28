@@ -1,16 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Recipe, Paso } from '@/types/recipe';
 import { 
   ArrowLeft, Mic, MicOff, Volume2, VolumeX, Play, Pause, RotateCcw, 
-  Check, ChevronRight, ChevronLeft, AlertCircle
+  Check, ChevronRight, ChevronLeft, AlertCircle, ChefHat
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Link from 'next/link';
 import { fetchRecipeById, getDeviceProfile, syncDeviceProfile } from '@/services/recipe-service';
 import { useVoiceCook } from '@/components/voice/use-voice-cook';
+import { ChefQueryModal } from '@/components/chef/chef-query-modal';
 
 export default function CookFocusPage() {
   const params = useParams();
@@ -33,10 +34,11 @@ export default function CookFocusPage() {
   const [voiceLog, setVoiceLog] = useState<string>("");
   const [showRipple, setShowRipple] = useState(false);
   const [showFinishedSplash, setShowFinishedSplash] = useState(false);
+  const [chefModalOpen, setChefModalOpen] = useState(false);
 
   const triggerTimerDoneSound = React.useCallback(() => {
     setTimeout(() => {
-      setVoiceLog("⏱ ¡Temporizador Completo!");
+      setVoiceLog("⏱️ Temporizador Completo!");
     }, 0);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const utterance = new SpeechSynthesisUtterance("El tiempo del paso ha terminado.");
@@ -106,8 +108,33 @@ export default function CookFocusPage() {
   // Current step helper
   const currentStep: Paso | undefined = recipe?.pasos[currentStepIndex];
 
+  const chefRecipeContext = useMemo(() => {
+    if (!recipe || !currentStep) {
+      return null;
+    }
+
+    return {
+      recipeName: recipe.nombre,
+      recipeDescription: recipe.descripcion,
+      tiempoTotal: recipe.tiempoTotal,
+      ingredientsTotal: recipe.ingredientesTotales,
+      allSteps: recipe.pasos.map((step) => ({
+        numero: step.numero,
+        texto: step.texto,
+      })),
+      currentStepNumber: currentStep.numero,
+      currentStepText: currentStep.texto,
+      currentStepIngredients: currentStep.ingredientesDelPaso,
+    };
+  }, [recipe, currentStep]);
+
+  const openChefModal = React.useCallback(() => {
+    setVoiceLog("Chef de Guardia activado...");
+    setChefModalOpen(true);
+  }, []);
+
   const handleNextStep = React.useCallback(() => {
-    if (!recipe) return;
+    if (!recipe || chefModalOpen) return;
     
     // Tap visual feedback
     setShowRipple(true);
@@ -117,16 +144,20 @@ export default function CookFocusPage() {
       setCurrentStepIndex((prev) => prev + 1);
       setVoiceLog("Cargando siguiente paso...");
     } else {
+      void syncDeviceProfile({
+        last_recipe_id: null,
+        last_step_index: null,
+      });
       setShowFinishedSplash(true);
     }
-  }, [currentStepIndex, recipe]);
+  }, [chefModalOpen, currentStepIndex, recipe]);
 
   const handlePrevStep = React.useCallback(() => {
-    if (currentStepIndex > 0) {
+    if (!chefModalOpen && currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
       setVoiceLog("Regresando al paso anterior...");
     }
-  }, [currentStepIndex]);
+  }, [chefModalOpen, currentStepIndex]);
 
   const startTimer = React.useCallback(() => {
     setTimerActive(true);
@@ -149,6 +180,8 @@ export default function CookFocusPage() {
     isSupported,
     permissionDenied,
     toggleListening,
+    pauseListening,
+    resumeListening,
     speakStep,
   } = useVoiceCook({
     onNextStep: handleNextStep,
@@ -156,7 +189,18 @@ export default function CookFocusPage() {
     onStartTimer: startTimer,
     onPauseTimer: pauseTimer,
     onStopTimer: stopTimer,
+    onChefQueryTrigger: openChefModal,
+    isNavigationBlocked: chefModalOpen,
   });
+
+  useEffect(() => {
+    if (chefModalOpen) {
+      pauseListening();
+      return;
+    }
+
+    resumeListening();
+  }, [chefModalOpen, pauseListening, resumeListening]);
 
   const speakIfAudible = React.useCallback((text: string) => {
     if (!isMuted) {
@@ -183,7 +227,7 @@ export default function CookFocusPage() {
 
   const statusVoiceLog = React.useMemo(() => {
     if (permissionDenied) {
-      return "Micrófono bloqueado. Usa HTTPS/localhost y habilita permiso del sitio.";
+      return "Micr?fono bloqueado. Usa HTTPS/localhost y habilita permiso del sitio.";
     }
 
     if (!isSupported) {
@@ -195,7 +239,7 @@ export default function CookFocusPage() {
     }
 
     if (isListening) {
-      return "Asistente: Escuchando comando ('siguiente', 'repetir', 'atrás')...";
+      return "Asistente: Escuchando ('siguiente', 'repetir', 'pregunta' o 'chef')...";
     }
 
     return "Voz desactivada";
@@ -323,7 +367,7 @@ export default function CookFocusPage() {
           {/* Listening Indicator */}
           <button
             onClick={toggleListening}
-            disabled={!isSupported}
+            disabled={!isSupported || chefModalOpen}
             className={`p-2 rounded-xl border transition-all flex items-center gap-2 text-xs font-mono uppercase ${
               isListening 
                 ? 'bg-teal-950/30 border-teal-500/25 text-teal-400' 
@@ -472,11 +516,21 @@ export default function CookFocusPage() {
           {/* Step Back (Hidden or small for afar, but useful) */}
           <button
             onClick={handlePrevStep}
-            disabled={currentStepIndex === 0}
+            disabled={chefModalOpen || currentStepIndex === 0}
             className="w-full sm:w-auto px-6 py-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-sm font-semibold text-slate-300 hover:text-white transition-all disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center gap-2"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Paso Anterior</span>
+          </button>
+
+          <button
+            onClick={openChefModal}
+            disabled={chefModalOpen}
+            className="w-full sm:w-auto px-6 py-4 rounded-xl bg-teal-950/40 hover:bg-teal-900/50 border border-teal-500/25 hover:border-teal-400/40 text-sm font-semibold text-teal-300 hover:text-teal-200 transition-all disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center gap-2"
+            title="También puedes decir 'pregunta' o 'chef' con la voz activa"
+          >
+            <ChefHat className="w-4 h-4" />
+            <span>Preguntar al chef</span>
           </button>
 
           {/* MASSIVE SINGLE ACTION BUTTON - OPTIMIZED FOR TAP OR VOICE FEEDBACK */}
@@ -485,6 +539,7 @@ export default function CookFocusPage() {
               whileHover={{ scale: 1.02, y: -2 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleNextStep}
+              disabled={chefModalOpen}
               className="w-full relative flex items-center justify-center gap-3 py-5 px-8 rounded-2xl bg-gradient-to-tr from-teal-500 to-emerald-500 text-white font-bold text-lg shadow-2xl shadow-teal-500/20 hover:from-teal-400 hover:to-emerald-400 transition-all duration-300 cursor-pointer overflow-hidden group"
             >
               {/* Inner glowing hover effect */}
@@ -508,6 +563,7 @@ export default function CookFocusPage() {
           {/* Muted instruction manual play button */}
           <button
             onClick={handleRepeatStep}
+            disabled={chefModalOpen}
             className="w-full sm:w-auto px-6 py-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-sm font-semibold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2"
           >
             <RotateCcw className="w-4 h-4 text-amber-500" />
@@ -515,6 +571,15 @@ export default function CookFocusPage() {
           </button>
         </div>
       </div>
+
+      {chefRecipeContext && (
+        <ChefQueryModal
+          isOpen={chefModalOpen}
+          onClose={() => setChefModalOpen(false)}
+          recipeContext={chefRecipeContext}
+          isMuted={isMuted}
+        />
+      )}
 
       {/* Celebration Finished Splash Overlay Modal */}
       <AnimatePresence>
