@@ -6,10 +6,43 @@ import Header from '@/components/ui/header';
 import RecipeCard from '@/components/ui/recipe-card';
 import InspireModal from '@/components/ui/inspire-modal';
 import { Recipe } from '@/types/recipe';
-import { Sparkles, Plus, CookingPot, Flame, HelpCircle, Utensils, MessageSquareText, Heart } from 'lucide-react';
+import { Sparkles, Plus, CookingPot, Flame, Utensils, MessageSquareText, Heart, Search, Mic, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useFavorites } from '@/context/favorites-context';
 import { fetchRecipes, getDeviceProfile, syncDeviceProfile } from '@/services/recipe-service';
+import { RecipeSearchBar } from "@/components/recipe/recipe-search-bar";
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+};
+
+type VoiceSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives?: number;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+};
+
+type VoiceSpeechRecognitionConstructor = new () => VoiceSpeechRecognition;
+
 
 function HomeContent() {
   const router = useRouter();
@@ -18,6 +51,9 @@ function HomeContent() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { favorites } = useFavorites();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState('');
 
   const currentCategory = searchParams.get('category') || '';
 
@@ -32,6 +68,15 @@ function HomeContent() {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+  };
+
+
+  const normalizeText = (value: string) => {
+    return value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
   };
 
   const handleCategoryClick = (categorySlug: string) => {
@@ -135,15 +180,42 @@ function HomeContent() {
   );
 
   const filteredRecipes = recipes.filter((recipe) => {
-    if (!currentCategory) return true;
-    if (currentCategory === 'favorites') {
-      return favorites.includes(recipe.id);
-    }
-    return recipe.categoria && (
-      recipe.categoria.toLowerCase() === currentCategory.toLowerCase() ||
-      getSlug(recipe.categoria) === currentCategory.toLowerCase()
-    );
+    const normalizedSearch = normalizeText(searchQuery);
+
+    const matchesCategory = (() => {
+      if (!currentCategory) return true;
+
+      if (currentCategory === 'favorites') {
+        return favorites.includes(recipe.id);
+      }
+
+      return (
+        recipe.categoria &&
+        (
+          recipe.categoria.toLowerCase() === currentCategory.toLowerCase() ||
+          getSlug(recipe.categoria) === currentCategory.toLowerCase()
+        )
+      );
+    })();
+
+    const ingredientsText = Array.isArray(recipe.ingredientesTotales)
+      ? recipe.ingredientesTotales.join(' ')
+      : '';
+
+    const searchableText = normalizeText([
+      recipe.nombre,
+      recipe.descripcion,
+      recipe.categoria,
+      recipe.tiempoTotal,
+      ingredientsText,
+    ].join(' '));
+
+    const matchesSearch =
+      normalizedSearch.length === 0 || searchableText.includes(normalizedSearch);
+
+    return matchesCategory && matchesSearch;
   });
+
 
   return (
     <>
@@ -319,7 +391,12 @@ function HomeContent() {
               </button>
             </div>
           </div>
-
+          <RecipeSearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            resultCount={filteredRecipes.length}
+            totalCount={recipes.length}
+          />
           {/* Recipes Grid / Empty State */}
           {filteredRecipes.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -333,12 +410,19 @@ function HomeContent() {
                 <Heart className="w-8 h-8" />
               </div>
               <h3 className="text-lg font-bold text-white mb-2">
-                {currentCategory === 'favorites' ? 'No hay recetas en favoritos' : 'No se encontraron recetas'}
+                {searchQuery
+                    ? 'No se encontraron recetas para tu búsqueda'
+                    : currentCategory === 'favorites'
+                      ? 'No hay recetas en favoritos'
+                      : 'No se encontraron recetas'}
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed mb-6">
-                {currentCategory === 'favorites' 
+                {searchQuery
+                ? 'Intenta buscar con otro nombre, ingrediente o categoría.'
+                : currentCategory === 'favorites'
                   ? 'Explora el catálogo y presiona el ícono del corazón en cualquier receta para guardarla aquí y acceder a ella rápidamente.'
                   : 'No hay recetas que coincidan con esta categoría de filtro.'}
+
               </p>
               <button
                 onClick={() => {
